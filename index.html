@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Babylon.js – Interactive Star Field (Fixed)</title>
+
+    <!-- Babylon.js core -->
+    <script src="https://cdn.jsdelivr.net/npm/babylonjs@7.0.0/babylon.js"></script>
+
+    <!-- Babylon.js extensions -->
+    <script src="https://cdn.jsdelivr.net/npm/babylonjs-loaders@7.0.0/babylonjs.loaders.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/babylonjs-materials@7.0.0/babylonjs.materials.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/babylonjs-gui@7.0.0/babylon.gui.min.js"></script>
+
+    <!-- Physics engine -->
+    <script src="https://cdn.jsdelivr.net/npm/ammojs-typed@1.0.7/ammo.js"></script>
+
+    <style>
+      html, body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+        background: black;
+      }
+      canvas {
+        width: 100%;
+        height: 100%;
+        display: block;
+      }
+    </style>
+  </head>
+
+  <body>
+    <canvas id="renderCanvas"></canvas>
+
+    <script>
+      const canvas = document.getElementById("renderCanvas");
+      const engine = new BABYLON.Engine(canvas, true);
+
+      async function createScene() {
+        const scene = new BABYLON.Scene(engine);
+        scene.clearColor = new BABYLON.Color3.Black();
+
+        // 🎥 Camera
+        const camera = new BABYLON.UniversalCamera("camera", new BABYLON.Vector3(0, 2, -10), scene);
+        camera.setTarget(BABYLON.Vector3.Zero());
+        camera.attachControl(canvas, true);
+
+        // 💡 Light
+        const light = new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0, 1, 0), scene);
+        
+        // 🌌 星空背景（Skybox）
+        const skybox = BABYLON.MeshBuilder.CreateBox("skyBox", { size: 2000 }, scene);
+        const skyboxMaterial = new BABYLON.StandardMaterial("skyBoxMaterial", scene);
+        skyboxMaterial.backFaceCulling = false;
+
+        skyboxMaterial.reflectionTexture = new BABYLON.CubeTexture(
+          "https://playground.babylonjs.com/textures/skybox",
+          scene
+        );
+        skyboxMaterial.reflectionTexture.coordinatesMode = BABYLON.Texture.SKYBOX_MODE;
+        skyboxMaterial.diffuseColor = new BABYLON.Color3(0, 0, 0);
+        skyboxMaterial.specularColor = new BABYLON.Color3(0, 0, 0);
+        skybox.material = skyboxMaterial;
+
+        // 🌍 地板
+        const ground = BABYLON.MeshBuilder.CreateGround("ground", { width: 50, height: 50 }, scene);
+        const groundMat = new BABYLON.StandardMaterial("groundMat", scene);
+
+        // 设置材质（半反射、深色）
+        groundMat.diffuseColor = new BABYLON.Color3(0.05, 0.05, 0.1);
+        groundMat.specularColor = new BABYLON.Color3(0.4, 0.4, 0.6);
+        groundMat.alpha = 0.9; // 透明度（可选）
+
+        ground.material = groundMat;
+        ground.position.y = -1.5;
+
+        // ✨ Glow
+        const glow = new BABYLON.GlowLayer("glow", scene);
+        glow.intensity = 0.8;
+
+        // 🌠 Create visible stars (no physics)
+        const stars = [];
+        const STAR_COUNT = 100;
+
+        function randomColor() {
+          const r = 0.6 + Math.random() * 0.4;
+          const g = 0.6 + Math.random() * 0.4;
+          const b = 1.0;
+          return new BABYLON.Color3(r, g, b);
+        }
+
+        for (let i = 0; i < STAR_COUNT; i++) {
+          const size = 0.15 + Math.random() * 0.25;
+          const star = BABYLON.MeshBuilder.CreateSphere("star" + i, { diameter: size }, scene);
+          star.position = new BABYLON.Vector3(
+            (Math.random() - 0.5) * 20,
+            (Math.random() - 0.5) * 10 + 2,
+            (Math.random() - 0.5) * 20
+          );
+          const mat = new BABYLON.StandardMaterial("mat" + i, scene);
+          mat.emissiveColor = randomColor();
+          mat.disableLighting = true;
+          star.material = mat;
+          stars.push(star);
+        }
+
+        // 💫 Gentle floating animation
+        scene.onBeforeRenderObservable.add(() => {
+          const t = performance.now() * 0.0002;
+          stars.forEach((s, i) => {
+            s.position.x += Math.sin(t + i * 0.37) * 0.0006;
+            s.position.y += Math.cos(t * 1.13 + i * 0.19) * 0.0005;
+            s.position.z += Math.sin(t * 0.77 + i * 0.11) * 0.0006;
+          });
+        });
+
+        // 🧭 GUI overlay
+        const ui = BABYLON.GUI.AdvancedDynamicTexture.CreateFullscreenUI("UI", true, scene);
+
+        const hint = new BABYLON.GUI.TextBlock();
+        hint.text = "⭐ Star Field ⭐";
+        hint.color = "white";
+        hint.fontSize = 18;
+        hint.textHorizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
+        hint.textVerticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_TOP;
+        hint.paddingLeft = "20px";
+        hint.paddingTop = "15px";
+        ui.addControl(hint);
+
+        // 🕶️ Enable WebXR with proper configuration
+        let xrHelper;
+
+        try {
+          // 关键修复：添加必要的配置参数
+          xrHelper = await scene.createDefaultXRExperienceAsync({
+            // 指定XR体验选项
+            floorMeshes: [ground], // 指定地板网格用于高度追踪
+            disableTeleportation: false // 启用传送功能
+          });
+          
+          console.log("✅ WebXR ready");
+          
+          // 配置VR体验
+          if (xrHelper.baseExperience) {
+            // 设置初始相机高度（近似人眼高度）
+            xrHelper.baseExperience.camera.position.y = 1.6;
+            
+            // 可选：添加进入VR的说明
+            const vrHint = new BABYLON.GUI.TextBlock();
+            vrHint.text = "Click the VR headset icon to enter VR mode";
+            vrHint.color = "cyan";
+            vrHint.fontSize = 16;
+            vrHint.textHorizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_CENTER;
+            vrHint.textVerticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_BOTTOM;
+            vrHint.paddingBottom = "80px";
+            ui.addControl(vrHint);
+          }
+          
+        } catch (e) {
+          console.error("❌ XR init failed:", e);
+          
+          // 添加备选提示
+          const errorHint = new BABYLON.GUI.TextBlock();
+          errorHint.text = "VR not available in this browser";
+          errorHint.color = "yellow";
+          errorHint.fontSize = 14;
+          errorHint.textHorizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_CENTER;
+          errorHint.textVerticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_BOTTOM;
+          errorHint.paddingBottom = "50px";
+          ui.addControl(errorHint);
+        }
+
+        return scene;
+      }
+
+      // ✅ Make scene globally visible for debugging
+      createScene().then(s => {
+        window.scene = s;
+        engine.runRenderLoop(() => {
+          if (s.activeCamera) s.render();
+        });
+      });
+
+      window.addEventListener("resize", () => engine.resize());
+    </script>
+  </body>
+</html>
