@@ -4,16 +4,22 @@
     <meta charset="utf-8" />
     <title>Babylon.js – Interactive Star Field (Fixed)</title>
 
-    <!-- Babylon.js core -->
+    <!-- Babylon.js Core -->
     <script src="https://cdn.jsdelivr.net/npm/babylonjs@7.0.0/babylon.js"></script>
 
-    <!-- Babylon.js extensions -->
+    <!-- Babylon.js Extensions -->
     <script src="https://cdn.jsdelivr.net/npm/babylonjs-loaders@7.0.0/babylonjs.loaders.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/babylonjs-materials@7.0.0/babylonjs.materials.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/babylonjs-gui@7.0.0/babylon.gui.min.js"></script>
+    <script src="https://cdn.babylonjs.com/inspector/babylon.inspector.bundle.js"></script>
+    <script src="https://cdn.babylonjs.com/cannon.js"></script>
 
-    <!-- Physics engine -->
+    <!-- Physics -->
     <script src="https://cdn.jsdelivr.net/npm/ammojs-typed@1.0.7/ammo.js"></script>
+
+    <!-- Custom ground module -->
+    <script src="js/ground.js"></script>
+    <link rel="stylesheet" href="css/ground.css" />
 
     <style>
       html, body {
@@ -42,144 +48,248 @@
         const scene = new BABYLON.Scene(engine);
         scene.clearColor = new BABYLON.Color3.Black();
 
-        // 🎥 Camera
-        const camera = new BABYLON.UniversalCamera("camera", new BABYLON.Vector3(0, 2, -10), scene);
+        /* ------------------------------------------------------------------
+          CAMERA & LIGHT
+        ------------------------------------------------------------------ */
+        const camera = new BABYLON.UniversalCamera(
+          "camera",
+          new BABYLON.Vector3(0, 2, -10),
+          scene
+        );
         camera.setTarget(BABYLON.Vector3.Zero());
         camera.attachControl(canvas, true);
 
-        // 💡 Light
-        const light = new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0, 1, 0), scene);
-        
-        // 🌌 星空背景（Skybox）
-        const skybox = BABYLON.MeshBuilder.CreateBox("skyBox", { size: 2000 }, scene);
-        const skyboxMaterial = new BABYLON.StandardMaterial("skyBoxMaterial", scene);
-        skyboxMaterial.backFaceCulling = false;
-
-        skyboxMaterial.reflectionTexture = new BABYLON.CubeTexture(
-          "https://playground.babylonjs.com/textures/skybox",
+        const light = new BABYLON.HemisphericLight(
+          "light",
+          new BABYLON.Vector3(0, 1, 0),
           scene
         );
-        skyboxMaterial.reflectionTexture.coordinatesMode = BABYLON.Texture.SKYBOX_MODE;
-        skyboxMaterial.diffuseColor = new BABYLON.Color3(0, 0, 0);
-        skyboxMaterial.specularColor = new BABYLON.Color3(0, 0, 0);
-        skybox.material = skyboxMaterial;
 
-        // 🌍 地板
-        const ground = BABYLON.MeshBuilder.CreateGround("ground", { width: 50, height: 50 }, scene);
-        const groundMat = new BABYLON.StandardMaterial("groundMat", scene);
+        /* ------------------------------------------------------------------
+          SKYBOX (GLB)
+        ------------------------------------------------------------------ */
+        BABYLON.SceneLoader.ImportMesh(
+          "",
+          "./model/",
+          "sky2.glb",
+          scene,
+          function (meshes) {
+            console.log("Sky GLB loaded:", meshes);
 
-        // 设置材质（半反射、深色）
-        groundMat.diffuseColor = new BABYLON.Color3(0.05, 0.05, 0.1);
-        groundMat.specularColor = new BABYLON.Color3(0.4, 0.4, 0.6);
-        groundMat.alpha = 0.9; // 透明度（可选）
+            const sky = meshes[0];
+            sky.scaling = new BABYLON.Vector3(500, 500, 500);
 
-        ground.material = groundMat;
-        ground.position.y = -1.5;
+            meshes.forEach((m) => {
+              if (m.material) m.material.backFaceCulling = false;
+            });
 
-        // ✨ Glow
+            scene.registerBeforeRender(() => {
+              sky.position.copyFrom(scene.activeCamera.position);
+            });
+          }
+        );
+
+        /* ------------------------------------------------------------------
+          GRASS GROUND
+        ------------------------------------------------------------------ */
+        let ground;
+
+        try {
+          const grassGround = new GrassGround(scene, {
+            width: 100,
+            height: 100,
+            positionY: -1.5,
+            textureScale: 10,
+            enablePhysics: true
+          });
+
+          ground = await grassGround.create();
+          console.log("Grass ground created:", ground);
+
+        } catch (error) {
+          console.error("Grass ground failed:", error);
+
+          ground = BABYLON.MeshBuilder.CreateGround(
+            "fallbackGround",
+            { width: 100, height: 100 },
+            scene
+          );
+          ground.position.y = -1.5;
+        }
+
+        /* ------------------------------------------------------------------
+          GLOW EFFECT
+        ------------------------------------------------------------------ */
         const glow = new BABYLON.GlowLayer("glow", scene);
         glow.intensity = 0.8;
 
-        // 🌠 Create visible stars (no physics)
+        /* ------------------------------------------------------------------
+          STARS (GLTF)
+        ------------------------------------------------------------------ */
         const stars = [];
-        const STAR_COUNT = 100;
+        const STAR_COUNT = 80;
 
-        function randomColor() {
-          const r = 0.6 + Math.random() * 0.4;
-          const g = 0.6 + Math.random() * 0.4;
-          const b = 1.0;
-          return new BABYLON.Color3(r, g, b);
-        }
+        BABYLON.SceneLoader.ImportMesh(
+          "",
+          "./model/star2/",
+          "scene.gltf",
+          scene,
+          function (meshes) {
+            const starTemplate = meshes[0];
+            starTemplate.setEnabled(false);
 
-        for (let i = 0; i < STAR_COUNT; i++) {
-          const size = 0.15 + Math.random() * 0.25;
-          const star = BABYLON.MeshBuilder.CreateSphere("star" + i, { diameter: size }, scene);
-          star.position = new BABYLON.Vector3(
-            (Math.random() - 0.5) * 20,
-            (Math.random() - 0.5) * 10 + 2,
-            (Math.random() - 0.5) * 20
-          );
-          const mat = new BABYLON.StandardMaterial("mat" + i, scene);
-          mat.emissiveColor = randomColor();
-          mat.disableLighting = true;
-          star.material = mat;
-          stars.push(star);
-        }
+            for (let i = 0; i < STAR_COUNT; i++) {
+              const clone = starTemplate.clone("star" + i);
+              clone.setEnabled(true);
 
-        // 💫 Gentle floating animation
-        scene.onBeforeRenderObservable.add(() => {
-          const t = performance.now() * 0.0002;
-          stars.forEach((s, i) => {
-            s.position.x += Math.sin(t + i * 0.37) * 0.0006;
-            s.position.y += Math.cos(t * 1.13 + i * 0.19) * 0.0005;
-            s.position.z += Math.sin(t * 0.77 + i * 0.11) * 0.0006;
-          });
-        });
+              clone.position = new BABYLON.Vector3(
+                (Math.random() - 0.5) * 20,
+                (Math.random() - 0.5) * 10 + 2,
+                (Math.random() - 0.5) * 20
+              );
 
-        // 🧭 GUI overlay
+              const scale = 0.3 + Math.random() * 0.5;
+              clone.scaling = new BABYLON.Vector3(scale, scale, scale);
+
+              stars.push(clone);
+            }
+
+            scene.onBeforeRenderObservable.add(() => {
+              const t = performance.now() * 0.0002;
+
+              stars.forEach((s, i) => {
+                s.position.x += Math.sin(t + i * 0.37) * 0.0006;
+                s.position.y += Math.cos(t * 1.13 + i * 0.19) * 0.0005;
+                s.position.z += Math.sin(t * 0.77 + i * 0.11) * 0.0006;
+              });
+            });
+          }
+        );
+
+        /* ------------------------------------------------------------------
+          BOMBS (GLB)
+        ------------------------------------------------------------------ */
+        const bombs = [];
+        const BOMB_COUNT = 20;
+
+        BABYLON.SceneLoader.ImportMesh(
+          "",
+          "./model/",
+          "bomb.glb",
+          scene,
+          function (meshes) {
+            const bombTemplate = meshes[0];
+            bombTemplate.setEnabled(false);
+
+            for (let i = 0; i < BOMB_COUNT; i++) {
+              const clone = bombTemplate.clone("bomb" + i);
+              clone.setEnabled(true);
+
+              clone.position = new BABYLON.Vector3(
+                (Math.random() - 0.5) * 20,
+                (Math.random() - 0.5) * 10 + 2,
+                (Math.random() - 0.5) * 20
+              );
+
+              clone.scaling = new BABYLON.Vector3(0.3, 0.3, 0.3);
+              bombs.push(clone);
+            }
+
+            scene.onBeforeRenderObservable.add(() => {
+              const t = performance.now() * 0.00025;
+
+              bombs.forEach((b, i) => {
+                b.position.x += Math.sin(t + i * 0.25) * 0.0008;
+                b.position.y += Math.cos(t * 1.1 + i * 0.18) * 0.0007;
+                b.position.z += Math.sin(t * 0.7 + i * 0.15) * 0.0008;
+                b.rotation.y += 0.005;
+              });
+            });
+          }
+        );
+
+        /* ------------------------------------------------------------------
+          GUI OVERLAY
+        ------------------------------------------------------------------ */
         const ui = BABYLON.GUI.AdvancedDynamicTexture.CreateFullscreenUI("UI", true, scene);
 
         const hint = new BABYLON.GUI.TextBlock();
         hint.text = "⭐ Star Field ⭐";
         hint.color = "white";
         hint.fontSize = 18;
-        hint.textHorizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
-        hint.textVerticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_TOP;
         hint.paddingLeft = "20px";
         hint.paddingTop = "15px";
+        hint.textHorizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
+        hint.textVerticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_TOP;
         ui.addControl(hint);
 
-        // 🕶️ Enable WebXR with proper configuration
+        /* ------------------------------------------------------------------
+          WEBXR
+        ------------------------------------------------------------------ */
         let xrHelper;
 
         try {
-          // 关键修复：添加必要的配置参数
           xrHelper = await scene.createDefaultXRExperienceAsync({
-            // 指定XR体验选项
-            floorMeshes: [ground], // 指定地板网格用于高度追踪
-            disableTeleportation: false // 启用传送功能
+            floorMeshes: [ground],
+            disableTeleportation: false
           });
-          
+
           console.log("✅ WebXR ready");
-          
-          // 配置VR体验
+
           if (xrHelper.baseExperience) {
-            // 设置初始相机高度（近似人眼高度）
             xrHelper.baseExperience.camera.position.y = 1.6;
-            
-            // 可选：添加进入VR的说明
+
             const vrHint = new BABYLON.GUI.TextBlock();
-            vrHint.text = "Click the VR headset icon to enter VR mode";
+            vrHint.text = "Click VR icon to enter VR mode";
             vrHint.color = "cyan";
             vrHint.fontSize = 16;
+            vrHint.paddingBottom = "80px";
             vrHint.textHorizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_CENTER;
             vrHint.textVerticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_BOTTOM;
-            vrHint.paddingBottom = "80px";
             ui.addControl(vrHint);
           }
-          
+
         } catch (e) {
           console.error("❌ XR init failed:", e);
-          
-          // 添加备选提示
+
           const errorHint = new BABYLON.GUI.TextBlock();
           errorHint.text = "VR not available in this browser";
           errorHint.color = "yellow";
           errorHint.fontSize = 14;
+          errorHint.paddingBottom = "50px";
           errorHint.textHorizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_CENTER;
           errorHint.textVerticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_BOTTOM;
-          errorHint.paddingBottom = "50px";
           ui.addControl(errorHint);
         }
+
+        /* ------------------------------------------------------------------
+          FPS COUNTER
+        ------------------------------------------------------------------ */
+        const fpsUI = BABYLON.GUI.AdvancedDynamicTexture.CreateFullscreenUI("FPS");
+        const fpsText = new BABYLON.GUI.TextBlock();
+        fpsText.text = "FPS: 0";
+        fpsText.color = "white";
+        fpsText.fontSize = 18;
+        fpsText.top = "20px";
+        fpsText.left = "20px";
+
+        fpsUI.addControl(fpsText);
+
+        scene.onBeforeRenderObservable.add(() => {
+          fpsText.text = `FPS: ${engine.getFps().toFixed()}`;
+        });
 
         return scene;
       }
 
-      // ✅ Make scene globally visible for debugging
-      createScene().then(s => {
-        window.scene = s;
+      /* ------------------------------------------------------------------
+        RUN ENGINE
+      ------------------------------------------------------------------ */
+      createScene().then((scene) => {
+        window.scene = scene;
+
         engine.runRenderLoop(() => {
-          if (s.activeCamera) s.render();
+          if (scene.activeCamera) scene.render();
         });
       });
 
