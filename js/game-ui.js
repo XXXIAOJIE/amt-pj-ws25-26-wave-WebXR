@@ -4,6 +4,7 @@ let GUI_guiTexture = null;
 let GUI_elements = {};
 let GUI_lastFpsUpdate = 0;
 let GUI_uiPlane = null;
+let GUI_domHUD = null; // DOM overlay for desktop HUD
 
 function createHoverButton(name, text, normalColor, hoverColor, width, height) {
   const button = BABYLON.GUI.Button.CreateSimpleButton(name, text);
@@ -67,7 +68,7 @@ backgroundPanel.height = "400px";
 
   // Game title
   const title = new BABYLON.GUI.TextBlock();
-  title.text = "🌟 Grab Stars 🌟";
+  title.text = "Grab Stars";
   title.color = "gold";
   title.fontSize = 40;
   title.fontWeight = "bold";
@@ -142,6 +143,48 @@ backgroundPanel.height = "400px";
     backgroundPanel
   };
 
+  // --- Create a simple DOM HUD for desktop mode ---
+  try {
+    if (!document.getElementById("desktop-hud")) {
+      GUI_domHUD = document.createElement("div");
+      GUI_domHUD.id = "desktop-hud";
+      GUI_domHUD.style.position = "fixed";
+      GUI_domHUD.style.left = "12px";
+      GUI_domHUD.style.top = "12px";
+      GUI_domHUD.style.zIndex = "9999";
+      GUI_domHUD.style.padding = "10px 14px";
+      GUI_domHUD.style.background = "rgba(0,0,0,0.6)";
+      GUI_domHUD.style.color = "white";
+      GUI_domHUD.style.fontFamily = "Arial, sans-serif";
+      GUI_domHUD.style.borderRadius = "8px";
+      GUI_domHUD.style.minWidth = "140px";
+      GUI_domHUD.style.pointerEvents = "none"; // let clicks pass through by default
+
+      const titleEl = document.createElement("div");
+      titleEl.textContent = "Grab Stars";
+      titleEl.style.fontWeight = "bold";
+      titleEl.style.marginBottom = "6px";
+      GUI_domHUD.appendChild(titleEl);
+
+      const scoreEl = document.createElement("div");
+      scoreEl.id = "desktop-hud-score";
+      scoreEl.textContent = "Score: 0";
+      scoreEl.style.fontSize = "18px";
+      scoreEl.style.marginBottom = "4px";
+      GUI_domHUD.appendChild(scoreEl);
+
+      const timeEl = document.createElement("div");
+      timeEl.id = "desktop-hud-time";
+      timeEl.textContent = "Time: 60s";
+      timeEl.style.fontSize = "14px";
+      GUI_domHUD.appendChild(timeEl);
+
+      document.body.appendChild(GUI_domHUD);
+    }
+  } catch (e) {
+    console.warn("Could not create desktop HUD:", e);
+  }
+
   console.log("✅ 3D VR UI created (HUD top-left)");
 
   return {
@@ -187,6 +230,11 @@ export function GUI_setUIVisible(visible) {
     GUI_uiPlane.setEnabled(visible);
     GUI_uiPlane.isVisible = visible;
   }
+
+  // Toggle DOM HUD: show when 3D UI is hidden (desktop), hide when in VR
+  if (GUI_domHUD) {
+    GUI_domHUD.style.display = visible ? "none" : "block";
+  }
 }
 
 // ======================================================================
@@ -200,6 +248,22 @@ export function GUI_updateFPS(fps) {
   if (now - GUI_lastFpsUpdate > 500) {
     GUI_elements.fpsText.text = `FPS: ${Math.round(fps)}`;
     GUI_lastFpsUpdate = now;
+    // update DOM HUD too
+    try {
+      const el = document.getElementById("desktop-hud");
+      if (el) {
+        // add fps if not present
+        let fpsEl = document.getElementById("desktop-hud-fps");
+        if (!fpsEl) {
+          fpsEl = document.createElement("div");
+          fpsEl.id = "desktop-hud-fps";
+          fpsEl.style.fontSize = "12px";
+          fpsEl.style.marginTop = "6px";
+          el.appendChild(fpsEl);
+        }
+        fpsEl.textContent = `FPS: ${Math.round(fps)}`;
+      }
+    } catch (e) {}
   }
 }
 
@@ -218,6 +282,12 @@ export function GUI_updateScore(score) {
       }
     }, 300);
   }
+
+  // Update DOM HUD score
+  try {
+    const s = document.getElementById("desktop-hud-score");
+    if (s) s.textContent = `Score: ${score}`;
+  } catch (e) {}
 }
 
 export function GUI_updateTime(seconds) {
@@ -233,6 +303,12 @@ export function GUI_updateTime(seconds) {
       GUI_elements.timeText.fontWeight = "normal";
     }
   }
+
+  // Update DOM HUD time
+  try {
+    const t = document.getElementById("desktop-hud-time");
+    if (t) t.textContent = `Time: ${Math.max(0, Math.floor(seconds))}s`;
+  } catch (e) {}
 }
 
 export function GUI_updateGameStatus(isStarted) {
@@ -255,6 +331,14 @@ export function GUI_updateGameStatus(isStarted) {
       }
     }
   }
+
+  // Update DOM HUD status color / small hint
+  try {
+    const el = document.getElementById("desktop-hud");
+    if (el) {
+      el.style.border = isStarted ? "2px solid rgba(0,255,0,0.25)" : "none";
+    }
+  } catch (e) {}
 }
 
 export function GUI_showGameOver(finalScore) {
