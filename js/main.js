@@ -64,7 +64,7 @@ async function createScene() {
 
   new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0, 1, 0), scene);
 
-  // 🌌 星空背景（Skybox）
+  //（Skybox）
         const skybox = BABYLON.MeshBuilder.CreateBox("skyBox", { size: 2000 }, scene);
         const skyboxMaterial = new BABYLON.StandardMaterial("skyBoxMaterial", scene);
         skyboxMaterial.backFaceCulling = false;

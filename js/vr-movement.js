@@ -1,7 +1,3 @@
-// ======================================================================
-//  vr-movement.js — VR Movement Control System (Babylon.js 7 Version)
-// ======================================================================
-
 // Movement configuration
 export const MOVEMENT_CONFIG = {
   // Movement speed (meters/second)
@@ -92,7 +88,7 @@ export function initMovementSystem(xrHelperInstance, sceneInstance, groundMeshes
   scene = sceneInstance;
   groundMeshes = groundMeshesArray;
   
-  console.log('🚶 Initializing VR movement system');
+  console.log('Initializing VR movement system');
   
   // Set initial player position
   if (xrHelper.baseExperience && xrHelper.baseExperience.camera) {

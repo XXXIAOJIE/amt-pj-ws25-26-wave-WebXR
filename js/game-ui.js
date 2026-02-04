@@ -40,7 +40,7 @@ function createHoverButton(name, text, normalColor, hoverColor, width, height) {
 export function GUI_initUI(scene) {
   console.log("✅ Creating 3D VR UI (top-left HUD)");
 
-  // 平面尺寸稍微小一点，当 HUD 用
+  // 平面尺寸
   const PLANE_WIDTH = 1.0;   // meter
   const PLANE_HEIGHT = 0.6;  // meter
 
@@ -197,8 +197,6 @@ backgroundPanel.height = "400px";
 // ======================================================================
 // VR UI Position — anchor to TOP-LEFT of view
 // ======================================================================
-
-// 保持原来的函数名，不改签名
 export function GUI_positionUIFrontOfCamera(
   camera,
   distance = 2,
