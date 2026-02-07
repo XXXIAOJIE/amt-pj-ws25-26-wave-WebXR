@@ -247,7 +247,25 @@ async function createScene() {
       xrHelper.baseExperience.camera.position.y = 1.6;
       
       // Initialize grab system
-      VRGS_setupXRGrab(xrHelper, scene);
+      // Detect Vision Pro (best-effort) and initialize appropriate input path
+      const ua = navigator.userAgent || navigator.vendor || window.opera || '';
+      const isVisionPro = /vision\s?pro|visionos|visionpro|apple\s?vision/i.test(ua);
+      if (isVisionPro) {
+        try {
+          const vpModule = await import('./vr-grab-visionpro.js');
+          if (vpModule && vpModule.VRGS_setupXRGrabForVisionPro) {
+            await vpModule.VRGS_setupXRGrabForVisionPro(xrHelper, scene);
+            console.log('🕶️ Vision Pro input initialized');
+          } else {
+            VRGS_setupXRGrab(xrHelper, scene);
+          }
+        } catch (e) {
+          console.warn('⚠️ Vision Pro init failed, falling back to controller path', e);
+          VRGS_setupXRGrab(xrHelper, scene);
+        }
+      } else {
+        VRGS_setupXRGrab(xrHelper, scene);
+      }
       
       // Initialize movement system
       initMovementSystem(xrHelper, scene, [ground]);

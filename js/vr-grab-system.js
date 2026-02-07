@@ -101,6 +101,44 @@ export function VRGS_registerGlow(glowLayer) {
   VRGS_glow = glowLayer;
 }
 
+// Highlight helpers for gaze/highlight UX
+let VRGS_currentHighlighted = null;
+let VRGS_prevMaterial = null;
+let VRGS_prevScale = null;
+
+export function VRGS_highlightMesh(mesh) {
+  if (!mesh) return;
+  if (VRGS_currentHighlighted === mesh) return;
+  // clear previous
+  VRGS_clearHighlight();
+  try {
+    VRGS_currentHighlighted = mesh;
+    VRGS_prevScale = mesh.scaling.clone ? mesh.scaling.clone() : null;
+    mesh.scaling = mesh.scaling.multiplyByFloats(1.25,1.25,1.25);
+    if (mesh.material && mesh.material.emissiveColor) {
+      VRGS_prevMaterial = mesh.material.emissiveColor.clone();
+      mesh.material.emissiveColor = new BABYLON.Color3(0.8,0.9,1.0);
+    }
+  } catch (e) { VRGS_currentHighlighted = null; }
+}
+
+export function VRGS_clearHighlight() {
+  try {
+    if (VRGS_currentHighlighted) {
+      const m = VRGS_currentHighlighted;
+      if (VRGS_prevScale && m.scaling.set) {
+        m.scaling.copyFrom(VRGS_prevScale);
+      }
+      if (VRGS_prevMaterial && m.material && m.material.emissiveColor) {
+        m.material.emissiveColor.copyFrom(VRGS_prevMaterial);
+      }
+    }
+  } catch (e) {}
+  VRGS_currentHighlighted = null;
+  VRGS_prevMaterial = null;
+  VRGS_prevScale = null;
+}
+
 export function VRGS_makeGrabbable(mesh, type = "star") {
   mesh.isPickable = true;
   mesh.metadata = {
@@ -193,6 +231,29 @@ function performManualRayPick(controller, scene) {
 
 const lastGrabTime = new Map();
 
+// Holds state for active holds (controllerId -> { mesh, lastPositions: [Vector3], observer })
+const VRGS_activeHolds = new Map();
+
+// How many samples to keep for estimating release velocity
+const HOLD_VELOCITY_SAMPLES = 4;
+
+function _sampleHoldPosition(controllerId, position) {
+  const entry = VRGS_activeHolds.get(controllerId);
+  if (!entry) return;
+  const arr = entry.lastPositions;
+  arr.push(position.clone());
+  if (arr.length > HOLD_VELOCITY_SAMPLES) arr.shift();
+}
+
+function _estimateReleaseVelocity(entry) {
+  const pts = entry.lastPositions;
+  if (!pts || pts.length < 2) return new BABYLON.Vector3(0,0,0);
+  const first = pts[0];
+  const last = pts[pts.length-1];
+  // approximate over samples count (not precise timing but enough for throw illusion)
+  const v = last.subtract(first).scale(1 / (pts.length * (1/60))); // assume ~60Hz
+  return v;
+}
 function handleGrabInteraction(mesh, scene, controller) {
   const controllerId = controller.uniqueId;
   const now = Date.now();
@@ -229,6 +290,15 @@ function handleGrabInteraction(mesh, scene, controller) {
   
   console.log(`🎮 抓取: ${grabbableMesh.name} (类型: ${grabbableMesh.metadata.type})`);
   
+  // If this input source is a tracked hand, start a hold instead of immediate pickup
+  try {
+    const isHand = !!(controller.inputSource && controller.inputSource.hand);
+    if (isHand) {
+      // start hold (attach to hand until release)
+      VRGS_startHold(controller, grabbableMesh, scene);
+      return;
+    }
+  } catch (e) {}
  // 获取位置 - 使用绝对位置，确保是世界坐标
   let effectPosition;
   if (grabbableMesh.getAbsolutePosition) {
@@ -282,6 +352,103 @@ function handleGrabInteraction(mesh, scene, controller) {
       grabbableMesh.setEnabled(false);
     }, 100);
   }
+}
+
+// ----------------- Hold / attach behavior -----------------
+export function VRGS_startHold(controller, mesh, scene) {
+  if (!controller || !mesh || !scene) return;
+  const id = controller.uniqueId;
+  if (VRGS_activeHolds.has(id)) return; // already holding
+
+  mesh.metadata.grabbing = true;
+
+  const entry = {
+    mesh,
+    lastPositions: [],
+    observer: null
+  };
+
+  // detach from parent if any
+  try { mesh.setParent(null); } catch(e) {}
+
+  // observer to update mesh position each frame to follow controller.grip or pointer
+  const obs = scene.onBeforeRenderObservable.add(() => {
+    try {
+      let targetPos = null;
+      let targetRot = null;
+      if (controller.grip) {
+        targetPos = controller.grip.getAbsolutePosition();
+        targetRot = controller.grip.rotationQuaternion || null;
+      } else if (controller.pointer) {
+        targetPos = controller.pointer.position.clone();
+        targetRot = controller.pointer.rotationQuaternion || null;
+      }
+
+      if (targetPos) {
+        const forward = new BABYLON.Vector3(0,0,1);
+        if (targetRot) forward.applyRotationQuaternion(targetRot);
+        const desired = targetPos.add(forward.scale(0.15));
+        mesh.position.copyFrom(desired);
+        if (targetRot) mesh.rotationQuaternion = targetRot.clone();
+
+        // sample for velocity estimation
+        _sampleHoldPosition(id, mesh.position);
+      }
+    } catch (e) {}
+  });
+
+  entry.observer = obs;
+  VRGS_activeHolds.set(id, entry);
+  VRGS_grabbedByController.set(id, mesh);
+  console.log(`🤲 Started hold for controller ${id} on ${mesh.name}`);
+}
+
+export function VRGS_updateHold(controller) {
+  // update handled by scene observer; kept for API completeness
+}
+
+export function VRGS_endHold(controller, scene) {
+  if (!controller || !scene) return;
+  const id = controller.uniqueId;
+  const entry = VRGS_activeHolds.get(id);
+  if (!entry) return;
+
+  const mesh = entry.mesh;
+  mesh.metadata.grabbing = false;
+
+  // remove observer
+  try {
+    if (entry.observer && scene && scene.onBeforeRenderObservable) {
+      scene.onBeforeRenderObservable.remove(entry.observer);
+    }
+  } catch (e) {}
+
+  // estimate release velocity (optional)
+  const velocity = _estimateReleaseVelocity(entry);
+  console.log('💨 Release velocity approx:', velocity);
+
+  // perform final pickup effect / scoring on release
+  try {
+    const effectPosition = mesh.getAbsolutePosition ? mesh.getAbsolutePosition() : mesh.position.clone();
+
+    if (mesh.metadata.type === 'star') {
+      if (VRGS_starSound) { try { VRGS_starSound.play(); } catch(e){} }
+      VRGS_addScore();
+      createPickupEffect(effectPosition, scene, 'star');
+      setTimeout(() => { mesh.metadata.isActive = false; mesh.setEnabled(false); }, 100);
+    } else if (mesh.metadata.type === 'bomb') {
+      if (VRGS_bombSound) { try { VRGS_bombSound.play(); } catch(e){} }
+      VRGS_subtractScore();
+      createPickupEffect(effectPosition, scene, 'bomb');
+      setTimeout(() => { mesh.metadata.isActive = false; mesh.setEnabled(false); }, 100);
+    }
+  } catch (e) {
+    console.error('❌ endHold processing failed', e);
+  }
+
+  VRGS_activeHolds.delete(id);
+  VRGS_grabbedByController.delete(id);
+  console.log(`🕊️ Ended hold for controller ${id} on ${mesh.name}`);
 }
 // ======================================================================
 // XR抓取设置（带错误处理）
@@ -367,6 +534,10 @@ export function VRGS_releaseGrabForController(controller) {
   try {
     if (!controller) return;
     const id = controller.uniqueId;
+    if (VRGS_activeHolds.has(id)) {
+      // finish hold and apply scoring/effects
+      try { VRGS_endHold(controller, BABYLON.Engine.LastCreatedScene); } catch (e) { console.error(e); }
+    }
     if (VRGS_grabbedByController.has(id)) {
       VRGS_grabbedByController.delete(id);
       console.log(`🕊️ Released grabbed object for controller ${id}`);
