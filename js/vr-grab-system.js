@@ -290,11 +290,12 @@ function handleGrabInteraction(mesh, scene, controller) {
   
   console.log(`🎮 抓取: ${grabbableMesh.name} (类型: ${grabbableMesh.metadata.type})`);
   
-  // If this input source is a tracked hand, start a hold instead of immediate pickup
+  // If this input source is a tracked hand, decide whether to start a hold or treat as immediate pickup.
+  // For stars we want immediate pickup (count + disappear) even with hand/pinch. For other types, start a hold.
   try {
     const isHand = !!(controller.inputSource && controller.inputSource.hand);
-    if (isHand) {
-      // start hold (attach to hand until release)
+    if (isHand && grabbableMesh.metadata && grabbableMesh.metadata.type !== 'star') {
+      // start hold (attach to hand until release) for non-star objects
       VRGS_startHold(controller, grabbableMesh, scene);
       return;
     }
@@ -431,16 +432,19 @@ export function VRGS_endHold(controller, scene) {
   try {
     const effectPosition = mesh.getAbsolutePosition ? mesh.getAbsolutePosition() : mesh.position.clone();
 
-    if (mesh.metadata.type === 'star') {
-      if (VRGS_starSound) { try { VRGS_starSound.play(); } catch(e){} }
-      VRGS_addScore();
-      createPickupEffect(effectPosition, scene, 'star');
-      setTimeout(() => { mesh.metadata.isActive = false; mesh.setEnabled(false); }, 100);
-    } else if (mesh.metadata.type === 'bomb') {
-      if (VRGS_bombSound) { try { VRGS_bombSound.play(); } catch(e){} }
-      VRGS_subtractScore();
-      createPickupEffect(effectPosition, scene, 'bomb');
-      setTimeout(() => { mesh.metadata.isActive = false; mesh.setEnabled(false); }, 100);
+    // Only award score/effects if the mesh is still active (not already collected on pinch start)
+    if (mesh.metadata && mesh.metadata.isActive) {
+      if (mesh.metadata.type === 'star') {
+        if (VRGS_starSound) { try { VRGS_starSound.play(); } catch(e){} }
+        VRGS_addScore();
+        createPickupEffect(effectPosition, scene, 'star');
+        setTimeout(() => { mesh.metadata.isActive = false; mesh.setEnabled(false); }, 100);
+      } else if (mesh.metadata.type === 'bomb') {
+        if (VRGS_bombSound) { try { VRGS_bombSound.play(); } catch(e){} }
+        VRGS_subtractScore();
+        createPickupEffect(effectPosition, scene, 'bomb');
+        setTimeout(() => { mesh.metadata.isActive = false; mesh.setEnabled(false); }, 100);
+      }
     }
   } catch (e) {
     console.error('❌ endHold processing failed', e);
