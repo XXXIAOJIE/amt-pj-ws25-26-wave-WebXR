@@ -288,8 +288,12 @@ function handleGrabInteraction(mesh, scene, controller) {
 // ======================================================================
 
 export function VRGS_setupXRGrab(xrHelper, scene) {
-  console.log("🎮 初始化WebXR抓取系统");
-  
+  console.log("🎮 初始化WebXR抓取系统 (Meta Quest / 控制器路径)");
+
+  // NOTE: Vision Pro / hand-tracking handling has been moved to js/vr-grab-visionpro.js
+  // To initialize Vision Pro support, import and call VRGS_setupXRGrabForVisionPro from
+  // your entry point (e.g. js/main.js) when running on a Vision Pro device.
+
   xrHelper.input.onControllerAddedObservable.add((controller) => {
     const controllerId = controller.uniqueId;
     
@@ -342,6 +346,34 @@ export function VRGS_setupXRGrab(xrHelper, scene) {
   });
   
   console.log("🎉 WebXR抓取系统初始化完成");
+}
+
+// ---------- exported helper: perform pick for a controller ----------
+export function VRGS_performPickForController(controller, scene) {
+  try {
+    const pickInfo = performManualRayPick(controller, scene);
+    if (pickInfo && pickInfo.hit && pickInfo.pickedMesh) {
+      handleGrabInteraction(pickInfo.pickedMesh, scene, controller);
+      return true;
+    }
+  } catch (e) {
+    console.error('❌ VRGS_performPickForController error:', e);
+  }
+  return false;
+}
+
+// ---------- exported helper: release grab (simple cleanup) ----------
+export function VRGS_releaseGrabForController(controller) {
+  try {
+    if (!controller) return;
+    const id = controller.uniqueId;
+    if (VRGS_grabbedByController.has(id)) {
+      VRGS_grabbedByController.delete(id);
+      console.log(`🕊️ Released grabbed object for controller ${id}`);
+    }
+  } catch (e) {
+    console.error('❌ VRGS_releaseGrabForController error:', e);
+  }
 }
 
 // ======================================================================
